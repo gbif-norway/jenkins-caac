@@ -1,0 +1,54 @@
+apiVersion: jenkins.io/v1alpha1
+kind: Pipeline
+metadata:
+  name: build-pipeline
+spec:
+  type: JenkinsPipeline
+  pipeline:
+    agent:
+      kubernetes:
+        yaml: |
+          apiVersion: v1
+          kind: Pod
+          spec:
+            containers:
+            - name: kaniko
+              image: gcr.io/kaniko-project/executor:debug
+              command:
+              - /busybox/sleep
+              args:
+              - 99d
+              volumeMounts:
+                - name: docker-config
+                  mountPath: /kaniko/.docker
+            volumes:
+              - name: docker-config
+                secret:
+                  secretName: jenkins-docker-config
+    parameters:
+      - name: DOCKER_REGISTRY
+        description: "Container registry URL (e.g., ghcr.io)"
+        default: "ghcr.io"
+      - name: GITHUB_WEBHOOK_SECRET
+        description: "GitHub webhook secret"
+        default: ""
+    triggers:
+      - github:
+          events:
+            - push
+          branches:
+            - main
+          secret: ${GITHUB_WEBHOOK_SECRET}
+    stages:
+      - name: Checkout
+        steps:
+          - checkout: scm
+      - name: Build and Push Container
+        steps:
+          - container: kaniko
+            command: |
+              /kaniko/executor \
+              --context "${WORKSPACE}" \
+              --dockerfile "${WORKSPACE}/Dockerfile" \
+              --destination "${DOCKER_REGISTRY}/${JOB_NAME}:${BUILD_NUMBER}" \
+              --destination "${DOCKER_REGISTRY}/${JOB_NAME}:latest" 
